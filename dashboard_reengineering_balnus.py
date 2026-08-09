@@ -206,7 +206,7 @@ html_file_id = st.secrets["gdrive"]["html_file_id"]
 
 try:
 
-    loader = show_signal_loader("Fetching dashboard from Google Drive...")
+    loader = show_signal_loader("Fetching dashboard from Google Drive, please wait...")
 
     html_content = fetch_html_from_drive(html_file_id)
 
@@ -279,7 +279,7 @@ def fetch_data_sources():
 
 try:
 
-    loader = show_signal_loader("Fetching data sources from Google Drive...")
+    loader = show_signal_loader("Fetching data sources from Google Drive, please wait...")
 
     data_sources = fetch_data_sources()
 
