@@ -368,47 +368,6 @@ except Exception as e:
 auto_load_js = f"""
 <script>
 (function(){{
-  // Streamlit's components.html iframe has a fixed height with its own
-  // internal scrollbar, on top of the outer page's scrollbar — two nested
-  // scroll areas fighting each other feels janky. Since srcdoc iframes are
-  // same-origin with the parent (no sandbox set), we can reach out via
-  // window.frameElement and resize the iframe itself to match content
-  // height, so only the outer page ever needs to scroll.
-  //
-  // While the login overlay is up, the full (tall) dashboard layout is
-  // still sitting in the DOM behind it — resizing to that would push the
-  // centered login box far down the page. So: lock scrolling entirely
-  // during login (nothing to scroll, the overlay fills the viewport) and
-  // only start syncing height to content once it's dismissed.
-  function isShowingLogin(){{
-    var overlay = document.getElementById('loginOverlay');
-    return !!(overlay && !overlay.classList.contains('hidden'));
-  }}
-  function syncFrameHeight(){{
-    try {{
-      var fe = window.frameElement;
-      if(!fe) return;
-      if(isShowingLogin()){{
-        document.documentElement.style.overflow = 'hidden';
-        if(document.body) document.body.style.overflow = 'hidden';
-        return;
-      }}
-      document.documentElement.style.overflow = '';
-      if(document.body) document.body.style.overflow = '';
-      var h = Math.max(
-        document.documentElement.scrollHeight,
-        document.body ? document.body.scrollHeight : 0
-      );
-      if(h > 0) fe.style.height = h + 'px';
-    }} catch(e) {{ /* cross-origin — fall back to the fixed height/scrollbar */ }}
-  }}
-  if(typeof ResizeObserver !== 'undefined' && document.body){{
-    new ResizeObserver(syncFrameHeight).observe(document.body);
-  }}
-  window.addEventListener('load', syncFrameHeight);
-  setInterval(syncFrameHeight, 500);
-  syncFrameHeight();
-
   const AUTO_SOURCES = {json.dumps(data_sources)};
   function b64ToBytes(b64){{
     const bin = atob(b64);
