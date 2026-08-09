@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import socket
+from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -99,14 +100,17 @@ DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 
 @st.cache_resource
-def get_drive_service():
+def get_drive_credentials():
 
-    credentials = service_account.Credentials.from_service_account_info(
+    return service_account.Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=DRIVE_SCOPES
     )
 
-    return build("drive", "v3", credentials=credentials)
+
+def get_drive_service():
+
+    return build("drive", "v3", credentials=get_drive_credentials())
 
 
 #%% ============================================================
@@ -193,31 +197,40 @@ DATA_SOURCE_FOLDERS = {
 }
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+def _download_entry(kind, file_meta):
+
+    service = get_drive_service()
+
+    content = download_file_bytes(service, file_meta["id"])
+
+    return kind, {
+        "name": file_meta["name"],
+        "b64": base64.b64encode(content).decode("ascii")
+    }
+
+
+@st.cache_data(ttl=7200, show_spinner=False)
 def fetch_data_sources():
 
     service = get_drive_service()
 
-    sources = {}
+    sources = {kind: [] for kind in DATA_SOURCE_FOLDERS}
+
+    jobs = []
 
     for kind, secret_key in DATA_SOURCE_FOLDERS.items():
 
         folder_id = st.secrets["gdrive"][secret_key]
 
-        files = list_folder_files(service, folder_id)
+        for file_meta in list_folder_files(service, folder_id):
 
-        entries = []
+            jobs.append((kind, file_meta))
 
-        for f in files:
+    with ThreadPoolExecutor(max_workers=8) as pool:
 
-            content = download_file_bytes(service, f["id"])
+        for kind, entry in pool.map(lambda job: _download_entry(*job), jobs):
 
-            entries.append({
-                "name": f["name"],
-                "b64": base64.b64encode(content).decode("ascii")
-            })
-
-        sources[kind] = entries
+            sources[kind].append(entry)
 
     return sources
 
