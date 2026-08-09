@@ -256,7 +256,8 @@ try:
 
         components.html(
             html_content,
-            height=1200
+            height=1200,
+            scrolling=True
         )
 
 except Exception as e:
