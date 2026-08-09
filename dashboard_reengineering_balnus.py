@@ -2,9 +2,13 @@
 # STEP 1 - IMPORT LIBRARY
 # ============================================================
 
+import io
+
 import streamlit as st
 import streamlit.components.v1 as components
-from pathlib import Path
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 
 #%% ============================================================
@@ -34,74 +38,58 @@ st.markdown(
 
 
 #%% ============================================================
-# STEP 3 - SET HTML DIRECTORY
+# STEP 3 - GOOGLE DRIVE CLIENT
 # ============================================================
 
-HTML_DIR = Path(__file__).parent / "HTML_DIR"
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+
+
+@st.cache_resource
+def get_drive_service():
+
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=DRIVE_SCOPES
+    )
+
+    return build("drive", "v3", credentials=credentials)
 
 
 #%% ============================================================
-# STEP 4 - CHECK HTML DIRECTORY
+# STEP 4 - FETCH HTML FILE FROM DRIVE
 # ============================================================
 
-if not HTML_DIR.exists():
+@st.cache_data(ttl=300)
+def fetch_html_from_drive(file_id):
 
-    st.error(
-        "Folder HTML tidak ditemukan."
-    )
+    service = get_drive_service()
 
-    st.code(
-        str(HTML_DIR)
-    )
+    request = service.files().get_media(fileId=file_id)
 
-    st.stop()
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    return buffer.getvalue().decode("utf-8")
 
 
 #%% ============================================================
-# STEP 5 - FIND HTML FILE
+# STEP 5 - LOAD HTML CONTENT
 # ============================================================
 
-html_files = sorted(
-    HTML_DIR.glob("*.html")
-)
-
-if not html_files:
-
-    st.warning(
-        "Tidak ada file HTML ditemukan."
-    )
-
-    st.code(
-        str(HTML_DIR)
-    )
-
-    st.stop()
-
-selected_html = html_files[0]
-
-
-#%% ============================================================
-# STEP 6 - READ HTML FILE
-# ============================================================
+file_id = st.secrets["gdrive"]["file_id"]
 
 try:
 
-    html_content = selected_html.read_text(
-        encoding="utf-8"
-    )
-
-except UnicodeDecodeError:
-
-    st.error(
-        "File HTML bukan UTF-8 atau encoding-nya berbeda."
-    )
-
-    st.stop()
+    html_content = fetch_html_from_drive(file_id)
 
 except Exception as e:
 
     st.error(
-        "Gagal membaca file HTML."
+        "Gagal mengambil file HTML dari Google Drive."
     )
 
     st.exception(e)
@@ -110,7 +98,7 @@ except Exception as e:
 
 
 #%% ============================================================
-# STEP 7 - RENDER HTML
+# STEP 6 - RENDER HTML
 # ============================================================
 
 try:
