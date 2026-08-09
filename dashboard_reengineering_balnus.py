@@ -252,13 +252,53 @@ else:
 
 try:
 
-    with st.spinner("Memuat dashboard, mohon tunggu..."):
+    loader = st.empty()
 
-        components.html(
-            html_content,
-            height=1200,
-            scrolling=True
-        )
+    loader.markdown(
+        """
+        <style>
+        .signal-loader{
+            display:flex; flex-direction:column; align-items:center;
+            justify-content:center; gap:16px; padding:70px 0;
+        }
+        .signal-bars{
+            display:flex; align-items:flex-end; gap:6px; height:40px;
+        }
+        .signal-bars span{
+            width:9px; border-radius:3px;
+            background:linear-gradient(180deg,#4967ff,#2f46c7);
+            animation:signal-pulse 1.1s ease-in-out infinite;
+            transform-origin:bottom;
+        }
+        .signal-bars span:nth-child(1){height:12px; animation-delay:0s;}
+        .signal-bars span:nth-child(2){height:20px; animation-delay:.12s;}
+        .signal-bars span:nth-child(3){height:28px; animation-delay:.24s;}
+        .signal-bars span:nth-child(4){height:36px; animation-delay:.36s;}
+        .signal-bars span:nth-child(5){height:40px; animation-delay:.48s;}
+        @keyframes signal-pulse{
+            0%,100%{opacity:.25; transform:scaleY(.35);}
+            50%{opacity:1; transform:scaleY(1);}
+        }
+        .signal-text{
+            font-size:13px; font-weight:600; letter-spacing:.02em;
+            color:#5b6b8c;
+        }
+        </style>
+        <div class="signal-loader">
+          <div class="signal-bars"><span></span><span></span><span></span><span></span><span></span></div>
+          <div class="signal-text">Memuat dashboard, mohon tunggu...</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    components.html(
+        html_content,
+        height=1200,
+        scrolling=True
+    )
+
+    loader.empty()
 
 except Exception as e:
 
