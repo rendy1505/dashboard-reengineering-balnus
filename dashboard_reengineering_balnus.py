@@ -7,6 +7,7 @@ import io
 import json
 import socket
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -14,7 +15,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-socket.setdefaulttimeout(30)
+socket.setdefaulttimeout(120)
 
 
 #%% ============================================================
@@ -41,6 +42,16 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+# The "Refresh Data" button in the dashboard's Data Sources menu navigates the
+# parent window to this query param (it can't call back into Python directly
+# since the dashboard is a static components.html iframe). Catch it here,
+# before anything is fetched, and force past the daily auto-load cache below.
+if st.query_params.get("refresh_data") == "1":
+    fetch_data_sources_cache_clear_pending = True
+    del st.query_params["refresh_data"]
+else:
+    fetch_data_sources_cache_clear_pending = False
 
 
 #%% ============================================================
@@ -161,7 +172,7 @@ def list_folder_files(service, folder_id):
 
     results = service.files().list(
         q=f"'{folder_id}' in parents and trashed=false",
-        fields="files(id, name, mimeType)"
+        fields="files(id, name, mimeType, modifiedTime)"
     ).execute()
 
     files = results.get("files", [])
@@ -226,39 +237,79 @@ except Exception as e:
 
 
 #%% ============================================================
-# STEP 6 - FETCH DATA SOURCES (IRR / BOQ / DEPLOYMENT / TRACKER / MSDB)
+# STEP 6 - FETCH DATA SOURCES (IRR / BOQ / DEPLOYMENT / TRACKER)
 # ============================================================
 #
-# NOTE: TA LTE (ta_lte_folder_id) is intentionally excluded from
-# auto-load. Adding it (~31MB) pushed the combined base64 payload
+# NOTE: TA LTE (ta_lte_folder_id) and MSDB (msdb_folder_id) are
+# intentionally excluded from auto-load. MSDB alone is ~48MB raw
+# (~64MB once base64-encoded), and adding TA LTE on top of the other
+# auto-loaded sources previously pushed the combined base64 payload
 # past the Community Cloud free tier's memory ceiling and crashed the
-# app ("connection reset by peer" health check failures). TA LTE
-# still works via the manual "Update Data" upload in that view.
+# app ("connection reset by peer" health check failures). Both still
+# work via the manual "Update Data" / upload-slot flow in their views.
 
 DATA_SOURCE_FOLDERS = {
     "irr": "irr_folder_id",
     "boq": "boq_folder_id",
     "deploy": "deploy_folder_id",
     "tracker": "tracker_folder_id",
-    "msdb": "msdb_folder_id",
 }
+
+WITA = timezone(timedelta(hours=8))
+
+
+def _daily_bucket_wita():
+
+    # Data auto-refreshes once a day at 07:00 WITA. Until that hour, still
+    # counts as the previous day's bucket so the cache doesn't flip early.
+    now = datetime.now(WITA)
+
+    if now.hour < 7:
+        now -= timedelta(days=1)
+
+    return now.strftime("%Y-%m-%d")
+
+
+@st.cache_resource
+def get_source_byte_cache():
+
+    # Persists for the life of the app process (not tied to the
+    # cache_data TTL below), keyed by Drive file id, so unchanged
+    # files don't get re-downloaded every time the cache expires.
+    return {}
 
 
 def _download_entry(kind, file_meta):
+
+    byte_cache = get_source_byte_cache()
+
+    cached = byte_cache.get(file_meta["id"])
+
+    if cached and cached["modifiedTime"] == file_meta["modifiedTime"]:
+
+        return kind, {"name": cached["name"], "b64": cached["b64"]}
 
     service = get_drive_service()
 
     content = download_file_bytes(service, file_meta["id"])
 
-    return kind, {
+    entry = {
         "name": file_meta["name"],
-        "b64": base64.b64encode(content).decode("ascii")
+        "b64": base64.b64encode(content).decode("ascii"),
+        "modifiedTime": file_meta["modifiedTime"]
     }
 
+    byte_cache[file_meta["id"]] = entry
 
-@st.cache_data(ttl=7200, show_spinner=False)
-def fetch_data_sources():
+    return kind, {"name": entry["name"], "b64": entry["b64"]}
 
+
+@st.cache_data(show_spinner=False)
+def fetch_data_sources(_bucket):
+
+    # _bucket (the WITA day, see _daily_bucket_wita) is the cache key: it
+    # only changes once a day at 07:00 WITA, so this only re-runs then or
+    # when the "Refresh Data" button clears the cache in between.
     service = get_drive_service()
 
     sources = {kind: [] for kind in DATA_SOURCE_FOLDERS}
@@ -284,9 +335,12 @@ def fetch_data_sources():
 
 try:
 
+    if fetch_data_sources_cache_clear_pending:
+        fetch_data_sources.clear()
+
     loader = show_signal_loader("Fetching data sources from Google Drive, please wait...")
 
-    data_sources = fetch_data_sources()
+    data_sources = fetch_data_sources(_daily_bucket_wita())
 
     loader.empty()
 
@@ -365,7 +419,9 @@ auto_load_js = f"""
     window.doLogin = function(){{
       origDoLogin.apply(this, arguments);
       const overlay = document.getElementById('loginOverlay');
-      if(overlay && overlay.classList.contains('hidden')){{
+      const canSeeSources = (typeof currentUser !== 'undefined') && currentUser
+        && Array.isArray(currentUser.views) && currentUser.views.indexOf('sources') !== -1;
+      if(overlay && overlay.classList.contains('hidden') && canSeeSources){{
         runAutoLoadOnce();
       }}
     }};
