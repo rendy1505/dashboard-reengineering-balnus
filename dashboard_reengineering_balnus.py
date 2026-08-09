@@ -93,6 +93,46 @@ def show_signal_loader(text):
 
 
 #%% ============================================================
+# STEP 2C - AUTO-RETRY ON ERROR
+# ============================================================
+
+MAX_AUTO_RETRIES = 3
+RETRY_DELAY_SECONDS = 8
+
+
+def handle_fetch_error(error, message, retry_key):
+
+    attempts = st.session_state.get(retry_key, 0)
+
+    st.error(message)
+
+    if attempts < MAX_AUTO_RETRIES:
+
+        st.session_state[retry_key] = attempts + 1
+
+        st.warning(
+            f"Retrying automatically in {RETRY_DELAY_SECONDS}s... "
+            f"(attempt {attempts + 1}/{MAX_AUTO_RETRIES})"
+        )
+
+        st.exception(error)
+
+        components.html(
+            f"<script>setTimeout(() => window.parent.location.reload(), {RETRY_DELAY_SECONDS * 1000});</script>",
+            height=0
+        )
+
+    else:
+
+        st.error(
+            "Auto-retry limit reached. Please check the error below and "
+            "reload the page manually once it's fixed."
+        )
+
+        st.exception(error)
+
+
+#%% ============================================================
 # STEP 3 - GOOGLE DRIVE CLIENT
 # ============================================================
 
@@ -172,13 +212,15 @@ try:
 
     loader.empty()
 
+    st.session_state.pop("retry_html", None)
+
 except Exception as e:
 
-    st.error(
-        "Failed to fetch the HTML file from Google Drive."
+    handle_fetch_error(
+        e,
+        "Failed to fetch the HTML file from Google Drive.",
+        "retry_html"
     )
-
-    st.exception(e)
 
     st.stop()
 
@@ -243,13 +285,15 @@ try:
 
     loader.empty()
 
+    st.session_state.pop("retry_data_sources", None)
+
 except Exception as e:
 
-    st.error(
-        "Failed to fetch data sources from Google Drive."
+    handle_fetch_error(
+        e,
+        "Failed to fetch data sources from Google Drive.",
+        "retry_data_sources"
     )
-
-    st.exception(e)
 
     data_sources = {}
 
@@ -354,10 +398,12 @@ try:
 
     loader.empty()
 
+    st.session_state.pop("retry_render", None)
+
 except Exception as e:
 
-    st.error(
-        "Failed to render the HTML in Streamlit."
+    handle_fetch_error(
+        e,
+        "Failed to render the HTML in Streamlit.",
+        "retry_render"
     )
-
-    st.exception(e)
