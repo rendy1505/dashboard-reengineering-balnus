@@ -435,9 +435,19 @@ auto_load_js = f"""
         catch(err) {{ console.error('Auto-load failed for', kind, err); }}
         continue;
       }}
-      const already = (typeof FILES !== 'undefined' && FILES[kind]) ? FILES[kind].map(f => f.name) : [];
-      entries = entries.filter(e => already.indexOf(e.name) === -1);
-      if(!entries.length) continue;
+      // Always refresh with what's currently on Drive rather than skipping
+      // sources whose filenames match what's already in FILES[kind] — that
+      // list can hold stale entries restored from the localStorage cache,
+      // which only keeps the merged MASTER/BOQROWS (not the raw per-source
+      // rows) to save space. Leaving those stale placeholders in place and
+      // skipping the reload meant SRC[kind] stayed an empty stand-in, and
+      // the next buildMaster() call (triggered by any other source's fresh
+      // load) rebuilt BOQROWS/MASTER from that emptiness — wiping out data
+      // that looked loaded but wasn't. Clearing the slot first guarantees
+      // a real, current ingest with no stale leftovers to collide with.
+      if(typeof FILES !== 'undefined' && FILES[kind]) FILES[kind] = [];
+      if(typeof SRC !== 'undefined') SRC[kind] = null;
+      if(typeof CACHE !== 'undefined') CACHE[kind] = {{}};
       const files = entries.map(e => new File([b64ToBytes(e.b64)], e.name));
       try {{
         await loadFiles(files, kind);
