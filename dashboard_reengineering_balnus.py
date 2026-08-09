@@ -430,7 +430,14 @@ auto_load_js = f"""
     window.sendTaLteFiles(files);
   }}
   async function autoLoadSources(){{
-    for(const kind of Object.keys(AUTO_SOURCES)){{
+    // Smallest sources first so the UI shows real progress quickly;
+    // the biggest one (MSDB) — the slowest to parse and the main
+    // cause of the post-login freeze — goes last.
+    const kindsBySize = Object.keys(AUTO_SOURCES).sort((a, b) => {{
+      const sizeOf = k => (AUTO_SOURCES[k] || []).reduce((s, e) => s + (e.b64 ? e.b64.length : 0), 0);
+      return sizeOf(a) - sizeOf(b);
+    }});
+    for(const kind of kindsBySize){{
       let entries = AUTO_SOURCES[kind];
       if(!entries || !entries.length) continue;
       if(kind === 'ta_lte'){{
