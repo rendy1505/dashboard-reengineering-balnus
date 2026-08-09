@@ -368,6 +368,37 @@ except Exception as e:
 auto_load_js = f"""
 <script>
 (function(){{
+  // Streamlit's components.html iframe has a fixed height with its own
+  // internal scrollbar, on top of the outer page's scrollbar — two nested
+  // scroll areas fighting each other feels heavy/janky. Since srcdoc
+  // iframes are same-origin with the parent (no sandbox set), we can
+  // reach window.frameElement and resize the iframe to match content
+  // height, so only the outer page needs to scroll.
+  //
+  // Deliberately scoped to AFTER login only (skipped entirely while
+  // #loginOverlay is visible) — an earlier attempt that also touched
+  // things during login ended up making the Sign In button unclickable,
+  // so the login screen is left completely alone this time.
+  function syncFrameHeightAfterLogin(){{
+    try {{
+      var overlay = document.getElementById('loginOverlay');
+      var loggedIn = overlay && overlay.classList.contains('hidden');
+      if(!loggedIn) return;
+      var fe = window.frameElement;
+      if(!fe) return;
+      var h = Math.max(
+        document.documentElement.scrollHeight,
+        document.body ? document.body.scrollHeight : 0
+      );
+      if(h > 0) fe.style.height = h + 'px';
+    }} catch(e) {{ /* cross-origin — fall back to the fixed height/scrollbar */ }}
+  }}
+  if(typeof ResizeObserver !== 'undefined' && document.body){{
+    new ResizeObserver(syncFrameHeightAfterLogin).observe(document.body);
+  }}
+  window.addEventListener('load', syncFrameHeightAfterLogin);
+  setInterval(syncFrameHeightAfterLogin, 500);
+
   const AUTO_SOURCES = {json.dumps(data_sources)};
   function b64ToBytes(b64){{
     const bin = atob(b64);
@@ -429,10 +460,12 @@ auto_load_js = f"""
     const origDoLogin = window.doLogin;
     window.doLogin = function(){{
       origDoLogin.apply(this, arguments);
+      // Every role needs the data loaded to see anything in views like
+      // "overview" — not being able to reach the Data Sources menu just
+      // means they can't manually upload/manage it, it doesn't mean they
+      // shouldn't see auto-loaded data at all.
       const overlay = document.getElementById('loginOverlay');
-      const canSeeSources = (typeof currentUser !== 'undefined') && currentUser
-        && Array.isArray(currentUser.views) && currentUser.views.indexOf('sources') !== -1;
-      if(overlay && overlay.classList.contains('hidden') && canSeeSources){{
+      if(overlay && overlay.classList.contains('hidden')){{
         runAutoLoadOnce();
       }}
     }};
