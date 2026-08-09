@@ -18,6 +18,20 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 0rem;
+        padding-bottom: 0rem;
+        padding-left: 0rem;
+        padding-right: 0rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 
 #%% ============================================================
 # STEP 3 - SET HTML DIRECTORY
@@ -103,7 +117,7 @@ try:
 
     components.html(
         html_content,
-        height=1000,
+        height=1200,
         scrolling=True
     )
 
