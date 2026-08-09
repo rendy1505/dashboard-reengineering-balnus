@@ -268,7 +268,7 @@ def fetch_data_sources():
 
             jobs.append((kind, file_meta))
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
 
         for kind, entry in pool.map(lambda job: _download_entry(*job), jobs):
 
