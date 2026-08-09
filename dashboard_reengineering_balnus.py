@@ -237,19 +237,21 @@ except Exception as e:
 
 
 #%% ============================================================
-# STEP 6 - FETCH DATA SOURCES (IRR / BOQ / DEPLOYMENT / TRACKER / MSDB)
+# STEP 6 - FETCH DATA SOURCES (IRR / BOQ / DEPLOYMENT / TRACKER / MSDB / TA LTE)
 # ============================================================
-#
-# NOTE: TA LTE (ta_lte_folder_id) is still excluded from auto-load —
-# it still works via the manual "Update Data" upload in that view.
 #
 # MSDB (msdb_folder_id) was re-added here (~48MB raw / ~64MB base64).
 # This previously caused OOM crashes on the Community Cloud free tier
 # combined with the other auto-loaded sources (see git history: "Revert
-# TA LTE auto-load — caused OOM crash"). Only auto-load MSDB again once
-# the Streamlit Cloud plan has been upgraded past the free tier's
-# memory ceiling — otherwise expect the same "connection reset by peer"
-# crash.
+# TA LTE auto-load — caused OOM crash"). If memory issues resurface after
+# re-adding TA LTE below, this is the first thing to drop again.
+#
+# TA LTE (ta_lte_folder_id) was excluded before because its folder held
+# ~31MB across 4 files, pushing the combined payload past the free
+# tier's memory ceiling. The folder now only holds the latest single
+# file (~8MB), so it's back in — total combined is ~70MB vs. the ~92MB
+# that crashed previously. Watch for "connection reset by peer" health
+# check failures in the logs if the TA LTE folder grows again.
 
 DATA_SOURCE_FOLDERS = {
     "irr": "irr_folder_id",
@@ -257,6 +259,7 @@ DATA_SOURCE_FOLDERS = {
     "deploy": "deploy_folder_id",
     "tracker": "tracker_folder_id",
     "msdb": "msdb_folder_id",
+    "ta_lte": "ta_lte_folder_id",
 }
 
 WITA = timezone(timedelta(hours=8))
