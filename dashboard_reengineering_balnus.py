@@ -5,12 +5,15 @@
 import base64
 import io
 import json
+import socket
 
 import streamlit as st
 import streamlit.components.v1 as components
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
+
+socket.setdefaulttimeout(30)
 
 
 #%% ============================================================
@@ -19,7 +22,7 @@ from googleapiclient.http import MediaIoBaseDownload
 
 st.set_page_config(
     page_title="Dashboard Reengineering Balnus",
-    page_icon="📊",
+    page_icon="page_icon.png",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -206,11 +209,27 @@ auto_load_js = f"""
       }}
     }}
   }}
-  if(typeof loadFiles === 'function'){{
+  let alreadyLoaded = false;
+  function runAutoLoadOnce(){{
+    if(alreadyLoaded) return;
+    alreadyLoaded = true;
     autoLoadSources();
-  }} else {{
-    window.addEventListener('load', autoLoadSources);
   }}
+  function hookLogin(){{
+    if(typeof window.doLogin !== 'function'){{
+      setTimeout(hookLogin, 50);
+      return;
+    }}
+    const origDoLogin = window.doLogin;
+    window.doLogin = function(){{
+      origDoLogin.apply(this, arguments);
+      const overlay = document.getElementById('loginOverlay');
+      if(overlay && overlay.classList.contains('hidden')){{
+        runAutoLoadOnce();
+      }}
+    }};
+  }}
+  hookLogin();
 }})();
 </script>
 """
@@ -233,11 +252,12 @@ else:
 
 try:
 
-    components.html(
-        html_content,
-        height=1200,
-        scrolling=True
-    )
+    with st.spinner("Memuat dashboard, mohon tunggu..."):
+
+        components.html(
+            html_content,
+            height=1200
+        )
 
 except Exception as e:
 
