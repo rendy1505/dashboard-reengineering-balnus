@@ -43,6 +43,55 @@ st.markdown(
 
 
 #%% ============================================================
+# STEP 2B - CELLULAR SIGNAL LOADER
+# ============================================================
+
+def show_signal_loader(text):
+
+    placeholder = st.empty()
+
+    placeholder.markdown(
+        f"""
+        <style>
+        .signal-loader{{
+            display:flex; flex-direction:column; align-items:center;
+            justify-content:center; gap:16px; padding:70px 0;
+        }}
+        .signal-bars{{
+            display:flex; align-items:flex-end; gap:6px; height:40px;
+        }}
+        .signal-bars span{{
+            width:9px; border-radius:3px;
+            background:linear-gradient(180deg,#4967ff,#2f46c7);
+            animation:signal-pulse 1.1s ease-in-out infinite;
+            transform-origin:bottom;
+        }}
+        .signal-bars span:nth-child(1){{height:12px; animation-delay:0s;}}
+        .signal-bars span:nth-child(2){{height:20px; animation-delay:.12s;}}
+        .signal-bars span:nth-child(3){{height:28px; animation-delay:.24s;}}
+        .signal-bars span:nth-child(4){{height:36px; animation-delay:.36s;}}
+        .signal-bars span:nth-child(5){{height:40px; animation-delay:.48s;}}
+        @keyframes signal-pulse{{
+            0%,100%{{opacity:.25; transform:scaleY(.35);}}
+            50%{{opacity:1; transform:scaleY(1);}}
+        }}
+        .signal-text{{
+            font-size:13px; font-weight:600; letter-spacing:.02em;
+            color:#5b6b8c;
+        }}
+        </style>
+        <div class="signal-loader">
+          <div class="signal-bars"><span></span><span></span><span></span><span></span><span></span></div>
+          <div class="signal-text">{text}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    return placeholder
+
+
+#%% ============================================================
 # STEP 3 - GOOGLE DRIVE CLIENT
 # ============================================================
 
@@ -99,7 +148,7 @@ def download_file_bytes(service, file_id):
 # STEP 5 - FETCH DASHBOARD HTML
 # ============================================================
 
-@st.cache_data(ttl=300, show_spinner="Mengambil dashboard dari Google Drive...")
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_html_from_drive(file_id):
 
     service = get_drive_service()
@@ -113,12 +162,16 @@ html_file_id = st.secrets["gdrive"]["html_file_id"]
 
 try:
 
+    loader = show_signal_loader("Fetching dashboard from Google Drive...")
+
     html_content = fetch_html_from_drive(html_file_id)
+
+    loader.empty()
 
 except Exception as e:
 
     st.error(
-        "Gagal mengambil file HTML dari Google Drive."
+        "Failed to fetch the HTML file from Google Drive."
     )
 
     st.exception(e)
@@ -127,7 +180,7 @@ except Exception as e:
 
 
 #%% ============================================================
-# STEP 6 - FETCH DATA SOURCES (IRR / BOQ / DEPLOYMENT / TRACKER / MSDB)
+# STEP 6 - FETCH DATA SOURCES (IRR / BOQ / DEPLOYMENT / TRACKER / MSDB / TA LTE)
 # ============================================================
 
 DATA_SOURCE_FOLDERS = {
@@ -136,10 +189,11 @@ DATA_SOURCE_FOLDERS = {
     "deploy": "deploy_folder_id",
     "tracker": "tracker_folder_id",
     "msdb": "msdb_folder_id",
+    "ta_lte": "ta_lte_folder_id",
 }
 
 
-@st.cache_data(ttl=300, show_spinner="Mengambil data source dari Google Drive...")
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_data_sources():
 
     service = get_drive_service()
@@ -170,12 +224,16 @@ def fetch_data_sources():
 
 try:
 
+    loader = show_signal_loader("Fetching data sources from Google Drive...")
+
     data_sources = fetch_data_sources()
+
+    loader.empty()
 
 except Exception as e:
 
     st.error(
-        "Gagal mengambil data source dari Google Drive."
+        "Failed to fetch data sources from Google Drive."
     )
 
     st.exception(e)
@@ -197,15 +255,36 @@ auto_load_js = f"""
     for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
     return bytes;
   }}
+  async function autoLoadTaLte(entries){{
+    const already = (typeof TA_LTE_FILES !== 'undefined') ? TA_LTE_FILES : [];
+    const names = entries.map(e => e.name);
+    if(already.length && names.every(n => already.indexOf(n) !== -1)) return;
+    const files = entries.map(e => new File([b64ToBytes(e.b64)], e.name));
+    if(typeof window.sendTaLteFiles !== 'function'){{
+      setTimeout(() => autoLoadTaLte(entries), 150);
+      return;
+    }}
+    window.TA_LTE_FILES = names;
+    if(typeof window.renderTaLteSourceStatus === 'function') window.renderTaLteSourceStatus();
+    window.sendTaLteFiles(files);
+  }}
   async function autoLoadSources(){{
     for(const kind of Object.keys(AUTO_SOURCES)){{
-      const entries = AUTO_SOURCES[kind];
+      let entries = AUTO_SOURCES[kind];
       if(!entries || !entries.length) continue;
+      if(kind === 'ta_lte'){{
+        try {{ await autoLoadTaLte(entries); }}
+        catch(err) {{ console.error('Auto-load failed for', kind, err); }}
+        continue;
+      }}
+      const already = (typeof FILES !== 'undefined' && FILES[kind]) ? FILES[kind].map(f => f.name) : [];
+      entries = entries.filter(e => already.indexOf(e.name) === -1);
+      if(!entries.length) continue;
       const files = entries.map(e => new File([b64ToBytes(e.b64)], e.name));
       try {{
         await loadFiles(files, kind);
       }} catch(err) {{
-        console.error('Auto-load gagal untuk', kind, err);
+        console.error('Auto-load failed for', kind, err);
       }}
     }}
   }}
@@ -252,45 +331,7 @@ else:
 
 try:
 
-    loader = st.empty()
-
-    loader.markdown(
-        """
-        <style>
-        .signal-loader{
-            display:flex; flex-direction:column; align-items:center;
-            justify-content:center; gap:16px; padding:70px 0;
-        }
-        .signal-bars{
-            display:flex; align-items:flex-end; gap:6px; height:40px;
-        }
-        .signal-bars span{
-            width:9px; border-radius:3px;
-            background:linear-gradient(180deg,#4967ff,#2f46c7);
-            animation:signal-pulse 1.1s ease-in-out infinite;
-            transform-origin:bottom;
-        }
-        .signal-bars span:nth-child(1){height:12px; animation-delay:0s;}
-        .signal-bars span:nth-child(2){height:20px; animation-delay:.12s;}
-        .signal-bars span:nth-child(3){height:28px; animation-delay:.24s;}
-        .signal-bars span:nth-child(4){height:36px; animation-delay:.36s;}
-        .signal-bars span:nth-child(5){height:40px; animation-delay:.48s;}
-        @keyframes signal-pulse{
-            0%,100%{opacity:.25; transform:scaleY(.35);}
-            50%{opacity:1; transform:scaleY(1);}
-        }
-        .signal-text{
-            font-size:13px; font-weight:600; letter-spacing:.02em;
-            color:#5b6b8c;
-        }
-        </style>
-        <div class="signal-loader">
-          <div class="signal-bars"><span></span><span></span><span></span><span></span><span></span></div>
-          <div class="signal-text">Memuat dashboard, mohon tunggu...</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    loader = show_signal_loader("Loading dashboard, please wait...")
 
     components.html(
         html_content,
@@ -303,7 +344,7 @@ try:
 except Exception as e:
 
     st.error(
-        "Gagal menampilkan HTML di Streamlit."
+        "Failed to render the HTML in Streamlit."
     )
 
     st.exception(e)
