@@ -402,6 +402,28 @@ auto_load_js = f"""
   window.addEventListener('load', syncFrameHeightAfterLogin);
   setInterval(syncFrameHeightAfterLogin, 500);
 
+  // Follow Streamlit's own light/dark theme (set via its Settings menu, next
+  // to the GitHub icon in the platform toolbar) instead of having a separate
+  // toggle inside the dashboard. Read the parent page's actual background
+  // color rather than guessing at Streamlit's internal theme markup, so this
+  // keeps working regardless of how Streamlit signals the theme internally.
+  function parentIsDark(){{
+    try {{
+      var bg = window.parent.getComputedStyle(window.parent.document.body).backgroundColor;
+      var m = bg.match(/\\d+/g);
+      if(!m || m.length < 3) return false;
+      var r = +m[0], g = +m[1], b = +m[2];
+      return (0.299*r + 0.587*g + 0.114*b) < 128;
+    }} catch(e) {{ return false; }}
+  }}
+  function syncThemeFromParent(){{
+    try {{
+      document.documentElement.setAttribute('data-theme', parentIsDark() ? 'dark' : '');
+    }} catch(e) {{}}
+  }}
+  syncThemeFromParent();
+  setInterval(syncThemeFromParent, 1000);
+
   const AUTO_SOURCES = {json.dumps(data_sources)};
   function b64ToBytes(b64){{
     const bin = atob(b64);
