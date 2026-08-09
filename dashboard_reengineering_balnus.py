@@ -226,8 +226,14 @@ except Exception as e:
 
 
 #%% ============================================================
-# STEP 6 - FETCH DATA SOURCES (IRR / BOQ / DEPLOYMENT / TRACKER / MSDB / TA LTE)
+# STEP 6 - FETCH DATA SOURCES (IRR / BOQ / DEPLOYMENT / TRACKER / MSDB)
 # ============================================================
+#
+# NOTE: TA LTE (ta_lte_folder_id) is intentionally excluded from
+# auto-load. Adding it (~31MB) pushed the combined base64 payload
+# past the Community Cloud free tier's memory ceiling and crashed the
+# app ("connection reset by peer" health check failures). TA LTE
+# still works via the manual "Update Data" upload in that view.
 
 DATA_SOURCE_FOLDERS = {
     "irr": "irr_folder_id",
@@ -235,7 +241,6 @@ DATA_SOURCE_FOLDERS = {
     "deploy": "deploy_folder_id",
     "tracker": "tracker_folder_id",
     "msdb": "msdb_folder_id",
-    "ta_lte": "ta_lte_folder_id",
 }
 
 
