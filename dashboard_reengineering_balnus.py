@@ -317,21 +317,33 @@ def fetch_data_sources(_bucket):
     # _bucket (the WITA day, see _daily_bucket_wita) is the cache key: it
     # only changes once a day at 07:00 WITA, so this only re-runs then or
     # when the "Refresh Data" button clears the cache in between.
-    service = get_drive_service()
-
     sources = {kind: [] for kind in DATA_SOURCE_FOLDERS}
 
-    jobs = []
-
-    for kind, secret_key in DATA_SOURCE_FOLDERS.items():
-
+    # List all 6 folders concurrently instead of one Drive API round-trip
+    # after another — each call blocks on network, so doing them in series
+    # adds up before a single download even starts. Each worker builds its
+    # own service/http transport (like _download_entry does below) since
+    # google-api-python-client clients aren't safe to share across threads.
+    def _list_one(item):
+        kind, secret_key = item
         folder_id = st.secrets["gdrive"][secret_key]
+        return kind, list_folder_files(get_drive_service(), folder_id)
 
-        for file_meta in list_folder_files(service, folder_id):
+    with ThreadPoolExecutor(max_workers=len(DATA_SOURCE_FOLDERS)) as list_pool:
 
-            jobs.append((kind, file_meta))
+        listings = list_pool.map(_list_one, DATA_SOURCE_FOLDERS.items())
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
+        jobs = [
+            (kind, file_meta)
+            for kind, files in listings
+            for file_meta in files
+        ]
+
+    # Downloads are I/O-bound (waiting on Drive, not CPU), so more workers
+    # means more requests in flight at once — this is the main lever for
+    # cutting wall-clock time when several files need a fresh download
+    # (cold start after a redeploy, or a source that changed on Drive).
+    with ThreadPoolExecutor(max_workers=8) as pool:
 
         for kind, entry in pool.map(lambda job: _download_entry(*job), jobs):
 
