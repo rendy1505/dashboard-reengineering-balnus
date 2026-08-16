@@ -53,21 +53,6 @@ if st.query_params.get("refresh_data") == "1":
 else:
     fetch_data_sources_cache_clear_pending = False
 
-# Hardware Inventory's two sources (~75MB combined) are deliberately NOT part
-# of the main auto-load below — see STEP 6B for why. This flag is set by the
-# dashboard the first time a session opens the Hardware Inventory menu (same
-# parent-window-navigation trick as "Refresh Data"), so the extra payload is
-# only ever rendered into sessions that actually asked for it.
-#
-# IMPORTANT: don't clear this param here. handle_fetch_error()'s auto-retry
-# reloads the page via window.parent.location.reload(), which replays
-# whatever is currently in the URL — if we'd already stripped the flag
-# before the fetch even ran, a failed first attempt would silently lose it
-# and the retry would land back on the un-loaded state forever. It's
-# cleared instead in STEP 6B, once the fetch actually succeeds or once
-# retries are exhausted.
-load_hw_inventory_pending = st.query_params.get("load_hw_inventory") == "1"
-
 
 #%% ============================================================
 # STEP 2B - CELLULAR SIGNAL LOADER
@@ -274,6 +259,14 @@ except Exception as e:
 # file (~8MB), so it's back in — total combined is ~70MB vs. the ~92MB
 # that crashed previously. Watch for "connection reset by peer" health
 # check failures in the logs if the TA LTE folder grows again.
+#
+# site_inventory/hw_inventory (Hardware Inventory menu, ~75MB combined)
+# were originally kept out of this dict and lazy-loaded on demand instead,
+# specifically to avoid pushing the combined payload to ~145MB. Folded
+# back in per explicit request to auto-load on every login instead of
+# requiring a manual "Load Hardware Inventory Data" click — if OOM crashes
+# or "connection reset by peer" health-check failures show up in the logs,
+# this pair is the first thing to pull back out into a lazy-load again.
 
 DATA_SOURCE_FOLDERS = {
     "irr": "irr_folder_id",
@@ -282,6 +275,8 @@ DATA_SOURCE_FOLDERS = {
     "tracker": "tracker_folder_id",
     "msdb": "msdb_folder_id",
     "ta_lte": "ta_lte_folder_id",
+    "site_inventory": "site_inventory_folder_id",
+    "hw_inventory": "hw_inventory_folder_id",
 }
 
 WITA = timezone(timedelta(hours=8))
@@ -399,95 +394,6 @@ except Exception as e:
 
 
 #%% ============================================================
-# STEP 6B - LAZY-FETCH HARDWARE INVENTORY (site_inventory + hw_inventory)
-# ============================================================
-#
-# These two sources are ~75MB combined raw (~22MB Site Inventory BBU CSV +
-# ~53MB Hardware Inventory xlsx) — on top of the ~70MB already auto-loaded
-# above, that would land well past the ~92MB combined payload that has
-# previously caused OOM crashes on the Community Cloud free tier (see the
-# note in STEP 6). So unlike DATA_SOURCE_FOLDERS, these are only fetched
-# and rendered into the page when load_hw_inventory_pending is set — i.e.
-# a session that actually opened the Hardware Inventory menu — instead of
-# unconditionally on every session's first load.
-#
-# The downloaded bytes still land in the same process-lifetime
-# get_source_byte_cache() as everything else, so once any session has
-# triggered this, later sessions reuse the cached bytes without a fresh
-# Drive round-trip — only the (cheap) re-render into that session's page
-# is repeated.
-
-HW_INVENTORY_FOLDERS = {
-    "site_inventory": "site_inventory_folder_id",
-    "hw_inventory": "hw_inventory_folder_id",
-}
-
-
-@st.cache_data(show_spinner=False)
-def fetch_hw_inventory_sources(_bucket):
-
-    sources = {kind: [] for kind in HW_INVENTORY_FOLDERS}
-
-    def _list_one(item):
-        kind, secret_key = item
-        folder_id = st.secrets["gdrive"][secret_key]
-        return kind, list_folder_files(get_drive_service(), folder_id)
-
-    with ThreadPoolExecutor(max_workers=len(HW_INVENTORY_FOLDERS)) as list_pool:
-
-        listings = list_pool.map(_list_one, HW_INVENTORY_FOLDERS.items())
-
-        jobs = [
-            (kind, file_meta)
-            for kind, files in listings
-            for file_meta in files
-        ]
-
-    with ThreadPoolExecutor(max_workers=4) as pool:
-
-        for kind, entry in pool.map(lambda job: _download_entry(*job), jobs):
-
-            sources[kind].append(entry)
-
-    return sources
-
-
-hw_inventory_sources = {}
-
-if load_hw_inventory_pending:
-
-    try:
-
-        loader = show_signal_loader("Fetching Hardware Inventory from Google Drive, please wait...")
-
-        hw_inventory_sources = fetch_hw_inventory_sources(_daily_bucket_wita())
-
-        loader.empty()
-
-        st.session_state.pop("retry_hw_inventory", None)
-
-        if "load_hw_inventory" in st.query_params:
-            del st.query_params["load_hw_inventory"]
-
-    except Exception as e:
-
-        handle_fetch_error(
-            e,
-            "Failed to fetch Hardware Inventory from Google Drive.",
-            "retry_hw_inventory"
-        )
-
-        # Auto-retries reload with the flag still in the URL (see the note
-        # above), but once MAX_AUTO_RETRIES is hit handle_fetch_error stops
-        # reloading and just shows a static error — so drop the flag here
-        # too, otherwise every future normal reload keeps trying (and
-        # failing) forever instead of waiting for the user to click the
-        # "Load Hardware Inventory Data" button again.
-        if st.session_state.get("retry_hw_inventory", 0) >= MAX_AUTO_RETRIES and "load_hw_inventory" in st.query_params:
-            del st.query_params["load_hw_inventory"]
-
-
-#%% ============================================================
 # STEP 7 - INJECT AUTO-LOAD SCRIPT INTO HTML
 # ============================================================
 
@@ -548,12 +454,6 @@ auto_load_js = f"""
   setInterval(syncThemeFromParent, 1000);
 
   const AUTO_SOURCES = {json.dumps(data_sources)};
-  // Only populated on the render that actually requested it — see STEP 6B
-  // in the Python wrapper. window.HW_INVENTORY_LOADED tells the dashboard
-  // whether this render has real data or whether it still needs to trigger
-  // the lazy-load reload (loadHwInventoryIfNeeded() in the dashboard HTML).
-  const HW_INVENTORY_SOURCES = {json.dumps(hw_inventory_sources)};
-  window.HW_INVENTORY_LOADED = {str(load_hw_inventory_pending and bool(hw_inventory_sources.get("site_inventory") or hw_inventory_sources.get("hw_inventory"))).lower()};
   function b64ToBytes(b64){{
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
