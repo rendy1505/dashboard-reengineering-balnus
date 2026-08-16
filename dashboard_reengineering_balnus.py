@@ -630,6 +630,7 @@ auto_load_js = f"""
       const overlay = document.getElementById('loginOverlay');
       if(overlay && overlay.classList.contains('hidden')){{
         runAutoLoadOnce();
+        if(typeof window.tryAutoLoadHwInventory === 'function') window.tryAutoLoadHwInventory();
       }}
     }};
     // Silently restore a still-valid previous session before showing the
@@ -640,6 +641,7 @@ auto_load_js = f"""
       const overlay = document.getElementById('loginOverlay');
       if(overlay && overlay.classList.contains('hidden')){{
         runAutoLoadOnce();
+        if(typeof window.tryAutoLoadHwInventory === 'function') window.tryAutoLoadHwInventory();
       }}
     }}
   }}
