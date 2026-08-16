@@ -616,7 +616,7 @@ auto_load_js = f"""
     autoLoadSources();
   }}
   function hookLogin(){{
-    if(typeof window.doLogin !== 'function'){{
+    if(typeof window.doLogin !== 'function' || typeof window.tryRestoreSession !== 'function'){{
       setTimeout(hookLogin, 50);
       return;
     }}
@@ -632,6 +632,16 @@ auto_load_js = f"""
         runAutoLoadOnce();
       }}
     }};
+    // Silently restore a still-valid previous session before showing the
+    // login screen at all — otherwise every reload triggered by "Refresh
+    // Data" / "Load Hardware Inventory Data" forces logging in a second
+    // time, which defeats the point of those buttons.
+    if(window.tryRestoreSession()){{
+      const overlay = document.getElementById('loginOverlay');
+      if(overlay && overlay.classList.contains('hidden')){{
+        runAutoLoadOnce();
+      }}
+    }}
   }}
   hookLogin();
 }})();
