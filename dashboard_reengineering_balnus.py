@@ -3,7 +3,6 @@
 # ============================================================
 
 import base64
-import html
 import io
 import json
 import socket
@@ -11,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import streamlit as st
+import streamlit.components.v1 as components
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -143,15 +143,9 @@ def handle_fetch_error(error, message, retry_key):
 
         st.exception(error)
 
-        # Needs allow-top-navigation to actually reload the parent page from
-        # inside a sandboxed iframe — see the note by the main dashboard's
-        # st.markdown(iframe=...) call for why components.html() can't do
-        # this on its own.
-        st.markdown(
-            f'<iframe srcdoc="<script>setTimeout(() =&gt; window.parent.location.reload(), '
-            f'{RETRY_DELAY_SECONDS * 1000});</script>" style="width:0;height:0;border:none" '
-            f'sandbox="allow-scripts allow-same-origin allow-top-navigation"></iframe>',
-            unsafe_allow_html=True
+        components.html(
+            f"<script>setTimeout(() => window.parent.location.reload(), {RETRY_DELAY_SECONDS * 1000});</script>",
+            height=0
         )
 
     else:
@@ -677,22 +671,21 @@ try:
 
     loader = show_signal_loader("Loading dashboard, please wait...")
 
-    # st.components.v1.html's iframe sandbox doesn't grant top-level
-    # navigation, so the "Refresh Data" / "Load Hardware Inventory" buttons'
-    # window.parent.location.href trick was silently blocked (confirmed via
-    # Streamlit Cloud logs showing zero server activity on click) - they'd
-    # have had to open a new tab instead. Building the iframe by hand here,
-    # with allow-top-navigation added, keeps that navigation working in the
-    # same tab. Everything else about the sandbox matches Streamlit's own
-    # default (allow-scripts/allow-same-origin so localStorage and JS still
-    # work, allow-popups/allow-forms/allow-modals/allow-downloads for the
-    # rest of the dashboard's existing behavior).
-    st.markdown(
-        f'<iframe srcdoc="{html.escape(html_content, quote=True)}" '
-        f'style="width:100%;height:1200px;border:none" scrolling="yes" '
-        f'sandbox="allow-scripts allow-same-origin allow-popups allow-forms '
-        f'allow-modals allow-downloads allow-top-navigation"></iframe>',
-        unsafe_allow_html=True
+    # Tried building this iframe by hand (st.markdown + a custom sandbox
+    # with allow-top-navigation) so "Refresh Data" / "Load Hardware
+    # Inventory" could reload in the same tab instead of opening a new one.
+    # That made every page load noticeably slower across the board — st.
+    # markdown()/unsafe_allow_html isn't optimized for a ~9MB payload the
+    # way components.html()'s dedicated iframe protocol is, and Streamlit
+    # re-sends it on every rerun. Reverted to components.html(); those two
+    # buttons open a new tab instead (see refreshDataSources()/
+    # hwTriggerLoad() in the dashboard HTML) - session persistence (added
+    # separately) means that new tab logs itself back in automatically, so
+    # this no longer costs a second login the way it used to.
+    components.html(
+        html_content,
+        height=1200,
+        scrolling=True
     )
 
     loader.empty()
