@@ -143,8 +143,15 @@ def handle_fetch_error(error, message, retry_key):
 
         st.exception(error)
 
+        # components.html()'s own iframe can't navigate the top-level page
+        # (see STEP 8's rdashNavHelper note) - reach across to that helper
+        # instead of calling window.parent.location.reload() directly.
         components.html(
-            f"<script>setTimeout(() => window.parent.location.reload(), {RETRY_DELAY_SECONDS * 1000});</script>",
+            "<script>setTimeout(() => {"
+            "  try { window.parent.document.getElementById('rdashNavHelper')"
+            "    .contentWindow.rdashNav(window.parent.location.href); }"
+            "  catch(e) { window.parent.location.reload(); }"
+            f"}}, {RETRY_DELAY_SECONDS * 1000});</script>",
             height=0
         )
 
@@ -671,17 +678,26 @@ try:
 
     loader = show_signal_loader("Loading dashboard, please wait...")
 
-    # Tried building this iframe by hand (st.markdown + a custom sandbox
-    # with allow-top-navigation) so "Refresh Data" / "Load Hardware
-    # Inventory" could reload in the same tab instead of opening a new one.
-    # That made every page load noticeably slower across the board — st.
-    # markdown()/unsafe_allow_html isn't optimized for a ~9MB payload the
-    # way components.html()'s dedicated iframe protocol is, and Streamlit
-    # re-sends it on every rerun. Reverted to components.html(); those two
-    # buttons open a new tab instead (see refreshDataSources()/
-    # hwTriggerLoad() in the dashboard HTML) - session persistence (added
-    # separately) means that new tab logs itself back in automatically, so
-    # this no longer costs a second login the way it used to.
+    # Tiny, separate navigation helper (a handful of bytes, not the ~9MB
+    # dashboard). components.html()'s sandbox never grants allow-top-
+    # navigation, and building the *whole* dashboard as a hand-rolled
+    # iframe just to add that one permission made every page load
+    # noticeably slower (st.markdown/unsafe_allow_html re-sends its full
+    # content on every rerun, unlike components.html()'s dedicated
+    # protocol). Splitting it out this way keeps the main dashboard on the
+    # fast path while still allowing same-tab navigation: this helper iframe
+    # is same-origin with the top-level Streamlit page (allow-same-origin),
+    # so the dashboard iframe can reach across to it via
+    # window.parent.document and call its exposed rdashNav(url) function,
+    # which runs *inside* this permitted iframe and can navigate window.top.
+    st.markdown(
+        '<iframe id="rdashNavHelper" style="display:none;width:0;height:0;border:none" '
+        'sandbox="allow-scripts allow-same-origin allow-top-navigation" '
+        'srcdoc="&lt;script&gt;window.rdashNav=function(u){window.top.location.href=u;};&lt;/script&gt;">'
+        '</iframe>',
+        unsafe_allow_html=True
+    )
+
     components.html(
         html_content,
         height=1200,
