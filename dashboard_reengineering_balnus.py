@@ -630,18 +630,25 @@ auto_load_js = f"""
       const overlay = document.getElementById('loginOverlay');
       if(overlay && overlay.classList.contains('hidden')){{
         runAutoLoadOnce();
-        if(typeof window.tryAutoLoadHwInventory === 'function') window.tryAutoLoadHwInventory();
       }}
     }};
     // Silently restore a still-valid previous session before showing the
     // login screen at all — otherwise every reload triggered by "Refresh
     // Data" / "Load Hardware Inventory Data" forces logging in a second
     // time, which defeats the point of those buttons.
+    //
+    // NOTE: deliberately NOT auto-triggering Hardware Inventory's own
+    // ~75MB reload on every login here (tryAutoLoadHwInventory exists in
+    // the dashboard HTML but is currently unused) - parsing that dataset
+    // client-side blocks the main thread long enough to trigger Chrome's
+    // "Page Unresponsive" dialog, and doing that automatically on every
+    // single login doubled how often that happened. Loading it still
+    // requires an explicit click on "Load Hardware Inventory Data" until
+    // that parsing itself is made non-blocking.
     if(window.tryRestoreSession()){{
       const overlay = document.getElementById('loginOverlay');
       if(overlay && overlay.classList.contains('hidden')){{
         runAutoLoadOnce();
-        if(typeof window.tryAutoLoadHwInventory === 'function') window.tryAutoLoadHwInventory();
       }}
     }}
   }}
