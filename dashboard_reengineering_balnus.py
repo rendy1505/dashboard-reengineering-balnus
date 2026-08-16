@@ -58,9 +58,15 @@ else:
 # dashboard the first time a session opens the Hardware Inventory menu (same
 # parent-window-navigation trick as "Refresh Data"), so the extra payload is
 # only ever rendered into sessions that actually asked for it.
+#
+# IMPORTANT: don't clear this param here. handle_fetch_error()'s auto-retry
+# reloads the page via window.parent.location.reload(), which replays
+# whatever is currently in the URL — if we'd already stripped the flag
+# before the fetch even ran, a failed first attempt would silently lose it
+# and the retry would land back on the un-loaded state forever. It's
+# cleared instead in STEP 6B, once the fetch actually succeeds or once
+# retries are exhausted.
 load_hw_inventory_pending = st.query_params.get("load_hw_inventory") == "1"
-if load_hw_inventory_pending:
-    del st.query_params["load_hw_inventory"]
 
 
 #%% ============================================================
@@ -453,6 +459,9 @@ if load_hw_inventory_pending:
 
         st.session_state.pop("retry_hw_inventory", None)
 
+        if "load_hw_inventory" in st.query_params:
+            del st.query_params["load_hw_inventory"]
+
     except Exception as e:
 
         handle_fetch_error(
@@ -460,6 +469,15 @@ if load_hw_inventory_pending:
             "Failed to fetch Hardware Inventory from Google Drive.",
             "retry_hw_inventory"
         )
+
+        # Auto-retries reload with the flag still in the URL (see the note
+        # above), but once MAX_AUTO_RETRIES is hit handle_fetch_error stops
+        # reloading and just shows a static error — so drop the flag here
+        # too, otherwise every future normal reload keeps trying (and
+        # failing) forever instead of waiting for the user to click the
+        # "Load Hardware Inventory Data" button again.
+        if st.session_state.get("retry_hw_inventory", 0) >= MAX_AUTO_RETRIES and "load_hw_inventory" in st.query_params:
+            del st.query_params["load_hw_inventory"]
 
 
 #%% ============================================================
